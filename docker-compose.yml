@@ -14,6 +14,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    networks:
+      - phan_network
 
   pgadmin:
     image: dpage/pgadmin4
@@ -24,26 +26,34 @@ services:
       - "8080:80"
     depends_on:
       - pgdatabase
+    networks:
+      - phan_network
 
-  ingest:
-    build: .
-    depends_on:
-      pgdatabase:
-        condition: service_healthy
-    # ENTRYPOINT đã là ["python","ingest_data.py"], nên command chỉ cần args
-    command:
-      [
-        "--user=root",
-        "--password=root",
-        "--host=pgdatabase",
-        "--port=5432",
-        "--db=ny_taxi",
-        "--table_name=yellow_taxi_trips",
-        "--url=https://github.com/DataTalksClub/nyc-tlc-data/releases/download/yellow/yellow_tripdata_2021-01.csv.gz"
-      ]
+  # ingest:
+  #   build: .
+  #   depends_on:
+  #     pgdatabase:
+  #       condition: service_healthy
+  #   # ENTRYPOINT đã là ["python","ingest_data.py"], nên command chỉ cần args
+  #   command:
+  #     [
+  #       "--user=root",
+  #       "--password=root",
+  #       "--host=pgdatabase",
+  #       "--port=5432",
+  #       "--db=ny_taxi",
+  #       "--table_name=yellow_taxi_trips",
+  #       "--url=https://github.com/DataTalksClub/nyc-tlc-data/releases/download/yellow/yellow_tripdata_2021-01.csv.gz"
+  #     ]
     # (tuỳ chọn) mount thư mục hiện tại nếu bạn muốn ghi log/file ra ngoài
     # volumes:
     #   - .:/app
 
 volumes:
   db_data:
+
+networks:
+  phan_network:
+    name: external_phan_network
+    driver: bridge
+
