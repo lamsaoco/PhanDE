@@ -66,6 +66,15 @@ docker run -it \
     --table_name=yellow_taxi_trips \
     --url=https://github.com/DataTalksClub/nyc-tlc-data/releases/download/yellow/yellow_tripdata_2021-01.csv.gz
 
+python Scripts/ingest_data.py \
+    --user=root \
+    --password=root \
+    --host=localhost \
+    --port=5432 \
+    --db=ny_taxi \
+    --table_name=yellow_taxi_trips \
+    --url=https://github.com/DataTalksClub/nyc-tlc-data/releases/download/yellow/yellow_tripdata_2021-01.csv.gz
+
 # CÁC BƯỚC KHỞI TẠO AIRFLOW THỦ CÔNG
 # 1. Tạo virtual environment và cài đặt Airflow
 # Tạo thư mục dự án
@@ -74,21 +83,29 @@ mkdir airflow-manual && cd airflow-manual
 # Tạo virtualenv
 python3 -m venv venv
 source venv/bin/activate
+pip install --upgrade pip setuptools wheel
+
+# Cài đặt các thư viện liên quan với version phù hợp với các điều kiện từ link
+pip install pandas sqlalchemy psycopg2-binary --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-3.0.4/constraints-3.12.txt"
 
 # Cài Airflow theo version
-AIRFLOW_VERSION=2.9.1
-PYTHON_VERSION="$(python --version | cut -d " " -f 2 | cut -d "." -f 1-2)"
+AIRFLOW_VERSION=3.0.4
+PYTHON_VERSION="$(python --version | awk '{print $2}' | cut -d. -f1-2)"   # ví dụ 3.12
 CONSTRAINT_URL="https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
 
 # Cài airflow với PostgreSQL support
 pip install "apache-airflow[postgres]==${AIRFLOW_VERSION}" -c "${CONSTRAINT_URL}"
+
+# Cài auth manager (bắt buộc từ 2.9+)
+pip install apache-airflow-providers-fab --constraint "${CONSTRAINT_URL}"
 
 # 2. Khởi tạo cấu hình Airflow
 # Kiểm tra kỹ lại bước này xem AIRFLOW_HOME được đặt đúng chỗ chưa
 export AIRFLOW_HOME=$(pwd)/airflow_home
 
 # Init project
-airflow db init
+
+airflow db init => airflow db migrate
 
 # Thư mục airflow_home/ sẽ được tạo, chứa:
 # - airflow.cfg: config file chính
@@ -96,6 +113,13 @@ airflow db init
 # - dags/: bạn sẽ đặt file DAG vào đây
 
 # 4. Tạo user đăng nhập Airflow Web UI
+# 3.x mặc định SimpleAuthManager → không có airflow users create.
+# Nếu muốn quản lý user kiểu cũ/FAB UI: pip install apache-airflow-providers-fab rồi đặt
+
+[core]
+auth_manager = airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+
+# Sau đó dùng lại:
 airflow users create \
     --username admin \
     --firstname Admin \
@@ -115,10 +139,15 @@ sql_alchemy_conn = postgresql+psycopg2://root:root@localhost:5432/ny_taxi
 
  # 6. Khởi chạy Airflow
  # Chạy webserver và scheduler ở 2 terminal khác nhau:
+
  # Terminal 1
-airflow webserver --port 8080
+airflow webserver --port 8081 => airflow api-server --host 0.0.0.0 --port 8081
+
 # Terminal 2
 airflow scheduler
+
+# Bổ sung thêm kể từ Airflow ver 3.0.4
+airflow dag-processor
 
 # 7. Tạo DAG trong airflow_home/dags/ny_taxi_dag.py
 
@@ -136,4 +165,35 @@ chmod +x ingest_data.py
 
 # 10. Kiểm tra kết quả trên PostgreSQL
 
+# Kiểm tra list dag
+airflow dags list
 
+---------------------------------------------------
+# Khi khởi động lại toàn bộ
+cd airflow-manual
+
+source venv/bin/activate
+
+export AIRFLOW_HOME=$(pwd)/airflow_home
+
+# Chạy api server với option -apps all để tạo cho cả server, core, executor
+airflow api-server --apps all --host 0.0.0.0 --port 8081
+
+# Chỉ rõ URL của execution API nếu không phải dùng cổng mặc định 8080
+export AIRFLOW__CORE__EXECUTION_API_SERVER_URL="http://localhost:8081/execution/"
+export AIRFLOW__API__BASE_URL="http://localhost:8081"
+
+# Tách riêng Terminal để chạy => Khi muốn tắt hoặc bật service sẽ không ảnh hưởng đến nhau
+airflow scheduler
+airflow dag-processor
+---------------------------------------------------
+
+python Scripts/ingest_data.py \
+                --user=root \
+                --password=root \
+                --host=localhost \
+                --port=5432 \
+                --db=ny_taxi \
+                --color=yellow \
+                --year=2025 \
+                --month=1
